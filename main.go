@@ -1,14 +1,15 @@
 package main
 
 import (
+	"flag"
 	"fmt"
+	"os"
+)
+
+var (
+	port = flag.String("port", os.Getenv("PORT"), "port ")
 )
 
 func main() {
-	s := "gopher"
-	fmt.Println("Hello and welcome, %s!", s)
-
-	for i := 1; i <= 5; i++ {
-		fmt.Println("i =", 100/i)
-	}
+	fmt.Printf("Hello and welcome, %s!\n", *port)
 }

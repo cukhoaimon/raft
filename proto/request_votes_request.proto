@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+option go_package="./pb";
+
+message RequestVotesRequest{
+  // candidate’s term
+  uint64 term = 1;
+  // candidate requesting vote
+  string candidateId = 2;
+  // index of candidate’s last log entry
+  uint64 lastLogIndex = 3;
+  // term of candidate’s last log entry
+  uint64 lastLogTerm = 4;
+}
