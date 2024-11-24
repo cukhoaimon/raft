@@ -1,8 +1,11 @@
-package main
+package raft
 
-type Config struct {
-	Bootstrap   bool   `default:"false" flag:"bootstrap"`
-	JoinAddress string `default:"localhost:7000" flag:"join"`
-	RaftPort    int    `default:"7000" flag:"raft-port"`
-	HttpPort    int    `default:"8080" flag:"http-port"`
+import "time"
+
+type RaftConfig struct {
+	Id               string
+	ListenAddr       string
+	PeerAddress      []string
+	HeartbeatTimeout time.Duration
+	ElectionTimeout  time.Duration
 }
