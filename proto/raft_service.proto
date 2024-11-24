@@ -5,11 +5,13 @@ import "append_entries_response.proto";
 import "request_votes_request.proto";
 import "request_votes_response.proto";
 
+package pb;
+
 option go_package="./pb";
 
 service RaftService {
   // Invoked by leader to replicate log entries; also used as heartbeat
-  rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse);
+  rpc AppendEntries (AppendEntriesRequest) returns (AppendEntriesResponse) {}
   // Invoked by candidates to gather votes
-  rpc RequestVotes(RequestVotesRequest) returns (RequestVotesResponse);
+  rpc RequestVotes (RequestVotesRequest) returns (RequestVotesResponse) {}
 }
