@@ -1,5 +1,9 @@
 package raft
 
+type RunConfig struct {
+	Bootstrap bool `default:"false" flag:"bootstrap"`
+}
+
 // Configuration represents a cluster of nodes.
 type Configuration struct {
 	// All peers of the cluster. Maps node ID to address.
