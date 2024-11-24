@@ -1,18 +1,13 @@
 package raft
 
-import (
-	"google.golang.org/grpc"
-	"log"
-)
-
-type RaftNode struct {
+type Node struct {
 	id       string
 	state    NodeState
 	term     uint64
 	votedFor string
 
-	// Log management
-	log         *Log
+	// Entry management
+	log         *Entry
 	commitIndex uint64
 	lastApplied uint64
 
@@ -20,54 +15,39 @@ type RaftNode struct {
 	nextIndex  map[string]uint64
 	matchIndex map[string]uint64
 
-	// Peer management
-	peers map[string]*grpc.ClientConn
-
 	// Components
-	transport    *Transport
-	storage      *Storage
-	stateMachine *StateMachine
+	transport    Transport
+	storage      Storage
+	stateMachine FSM
 
 	// Configuration
 	config *RaftConfig
 }
 
-func NewNode(config RaftConfig) *RaftNode {
-	node := RaftNode{
-		id:           "",
-		state:        0,
-		term:         0,
-		votedFor:     "",
-		log:          nil,
-		commitIndex:  0,
-		lastApplied:  0,
-		nextIndex:    nil,
-		matchIndex:   nil,
-		peers:        nil,
-		transport:    nil,
-		storage:      nil,
-		stateMachine: nil,
-		config:       nil,
-	}
-
-	for _, address := range config.PeerAddress {
-		conn, err := grpc.NewClient(address)
-		if err != nil {
-			log.Printf("Error when create new grpc client with address=%s. Detail: %e", address, err)
-			continue
-		}
-
-		node.peers[address] = conn
+func NewNode(config RaftConfig) *Node {
+	node := Node{
+		id:          "",
+		state:       0,
+		term:        0,
+		votedFor:    "",
+		log:         nil,
+		commitIndex: 0,
+		lastApplied: 0,
+		nextIndex:   nil,
+		matchIndex:  nil,
+		transport:   GRPCTransport{},
+		storage:     nil,
+		config:      nil,
 	}
 
 	return &node
 }
 
-func (r *RaftNode) Start() {
+func (r *Node) Start() {
 	go r.run()
 }
 
-func (r *RaftNode) run() {
+func (r *Node) run() {
 	switch r.state {
 	case Follower:
 		r.runAsFollower()
@@ -78,11 +58,11 @@ func (r *RaftNode) run() {
 	}
 }
 
-func (r *RaftNode) runAsFollower() {
+func (r *Node) runAsFollower() {
 }
 
-func (r *RaftNode) runAsCandidate() {
+func (r *Node) runAsCandidate() {
 }
 
-func (r *RaftNode) runAsLeader() {
+func (r *Node) runAsLeader() {
 }

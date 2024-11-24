@@ -4,6 +4,8 @@ package pb;
 
 option go_package="./pb";
 
+import "entry.proto";
+
 message AppendEntriesRequest{
   // leader’s term
   uint64 term = 1;
@@ -14,7 +16,7 @@ message AppendEntriesRequest{
   // term of prevLogIndex entry
   uint64 prevLogTerm = 4;
   // log entries to store (empty for heartbeat, may send more than one for efficiency)
-  repeated string entries = 5;
+  repeated Entry entries = 5;
   // leader’s commitIndex
   uint64 leaderCommit = 6;
 }

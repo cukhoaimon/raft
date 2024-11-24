@@ -4,7 +4,7 @@ package pb;
 
 option go_package="./pb";
 
-message RequestVotesRequest{
+message RequestVoteRequest{
   // candidate’s term
   uint64 term = 1;
   // candidate requesting vote

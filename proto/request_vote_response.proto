@@ -4,7 +4,7 @@ package pb;
 
 option go_package="./pb";
 
-message RequestVotesResponse{
+message RequestVoteResponse{
   // currentTerm, for candidate to update itself
   uint64 term = 1;
   // true means candidate received vote
