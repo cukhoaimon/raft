@@ -44,7 +44,7 @@ func (c *connectionManager) getClient(address string) (pb.RaftClient, error) {
 		return client, nil
 	}
 
-	conn, err := grpc.NewClient(address)
+	conn, err := grpc.NewClient(address, grpc.WithInsecure())
 	if err != nil {
 		return nil, fmt.Errorf("could not establish connection: %w", err)
 	}

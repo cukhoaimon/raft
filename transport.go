@@ -31,6 +31,14 @@ type Transport interface {
 
 	// SendRequestVote sends a request vote request to the peer to the provided address.
 	SendRequestVote(address string, request *pb.RequestVoteRequest) (pb.RequestVoteResponse, error)
+
+	// RegisterAppendEntriesHandler registers the function the that will be called when an
+	// AppendEntries RPC is received.
+	RegisterAppendEntriesHandler(handler func(*pb.AppendEntriesRequest, *pb.AppendEntriesResponse) error)
+
+	// RegisterRequestVoteHandler registers the function that will be called when a
+	// RequestVote RPC is received.
+	RegisterRequestVoteHandler(handler func(*pb.RequestVoteRequest, *pb.RequestVoteResponse) error)
 }
 
 // transport is an implementation of the Transport interface.
@@ -48,6 +56,10 @@ type transport struct {
 
 	// Manages connections to other members of the cluster.
 	connManager *connectionManager
+
+	appendEntriesHandler func(*pb.AppendEntriesRequest, *pb.AppendEntriesResponse) error
+
+	requestVoteHandler func(*pb.RequestVoteRequest, *pb.RequestVoteResponse) error
 
 	mutex sync.RWMutex
 }
@@ -126,6 +138,14 @@ func (t *transport) Address() string {
 	return t.address.String()
 }
 
+func (t *transport) RegisterAppendEntriesHandler(handler func(*pb.AppendEntriesRequest, *pb.AppendEntriesResponse) error) {
+	t.appendEntriesHandler = handler
+}
+
+func (t *transport) RegisterRequestVoteHandler(handler func(*pb.RequestVoteRequest, *pb.RequestVoteResponse) error) {
+	t.requestVoteHandler = handler
+}
+
 // endregion
 
 // region Client interaction
@@ -201,14 +221,6 @@ func (t *transport) RequestVotes(ctx context.Context, request *pb.RequestVoteReq
 	var err error
 	err = t.requestVoteHandler(request, response)
 	return response, err
-}
-
-func (t *transport) requestVoteHandler(request *pb.RequestVoteRequest, response *pb.RequestVoteResponse) error {
-	return fmt.Errorf("not yet implemented")
-}
-
-func (t *transport) appendEntriesHandler(request *pb.AppendEntriesRequest, response *pb.AppendEntriesResponse) error {
-	return fmt.Errorf("not yet implemented")
 }
 
 // endregion
