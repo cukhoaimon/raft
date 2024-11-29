@@ -1,9 +1,8 @@
-package raft
+package main
 
 import (
 	"log"
 	"sync"
-	"time"
 )
 
 // Node implements the raft consensus protocol.
@@ -17,21 +16,11 @@ type Node struct {
 	// The ID that this raft node believes is the leader. Used to redirect clients.
 	leaderID string
 
-	// The logger for this raft node.
-	logger *log.Logger
-
 	// The network transport for sending and receiving RPCs.
 	transport Transport
 
-	// The latest configuration of the cluster.
-	// This may or may not be committed.
-	configuration *Configuration
-
-	// The most recently committed configuration of the cluster.
-	committedConfiguration *Configuration
-
 	// This stores and retrieves persisted vote and term.
-	stateStorage Storage
+	storage Storage
 
 	// The state machine provided by the client that operations will be applied to.
 	fsm FSM
@@ -60,48 +49,44 @@ type Node struct {
 	// ID of the candidate that this raft node voted for. Must be persisted.
 	votedFor string
 
-	// The timestamp representing the time of the last contact by the leader.
-	lastContact time.Time
-
-	waitGroup sync.WaitGroup
-
 	mutex sync.Mutex
 }
 
 func NewNode(config RunConfig) *Node {
-	transport, err := NewTransport("127.0.0.1:8080")
+	address := "127.0.0.1:" + config.RaftPort
+
+	var state NodeState
+	if config.Bootstrap {
+		state = Leader
+	} else {
+		state = Follower
+	}
+
+	transport, err := NewTransport(address)
 	if err != nil {
 		log.Panicf("cannot create transport due to error %e", err)
 		return nil
 	}
+	err = transport.Run()
+	if err != nil {
+		log.Panicf("cannot run transport server due to error %e", err)
+		return nil
+	}
+
+	storage := NewStorage()
 
 	node := Node{
+		address:   address,
 		transport: transport,
+		storage:   storage,
+		state:     state,
 	}
 
 	return &node
 }
 
-func (r *Node) Start() {
-	go r.run()
-}
+func (node *Node) Start() {
 
-func (r *Node) run() {
-	switch r.state {
-	case Follower:
-		r.runAsFollower()
-	case Candidate:
-		r.runAsCandidate()
-	case Leader:
-		r.runAsLeader()
-	}
-}
-
-func (r *Node) runAsFollower() {
-}
-
-func (r *Node) runAsCandidate() {
-}
-
-func (r *Node) runAsLeader() {
+	// leader: start send heart beet
+	// follower: start ticker
 }

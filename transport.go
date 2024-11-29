@@ -1,14 +1,12 @@
-package raft
+package main
 
 import (
 	"context"
 	"fmt"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 	"log"
+	"main/pb"
 	"net"
-	"raft/pb"
 	"sync"
 	"time"
 )
@@ -17,7 +15,7 @@ const shutdownGracePeriod = 300 * time.Millisecond
 
 // Transport represents the underlying transport mechanism used by a node in a cluster
 // to send and receive RPCs. It is the implementers responsibility to provide functions
-// that invoke the registered handlers.
+// that invoke the handlers.
 type Transport interface {
 	// Run will start serving incoming RPCs received at the local network address.
 	Run() error
@@ -25,81 +23,14 @@ type Transport interface {
 	// Shutdown will stop the serving of incoming RPCs.
 	Shutdown() error
 
+	// Address returns the local network address.
+	Address() string
+
 	// SendAppendEntries sends an append entries request to the provided address.
 	SendAppendEntries(address string, request *pb.AppendEntriesRequest) (pb.AppendEntriesResponse, error)
 
 	// SendRequestVote sends a request vote request to the peer to the provided address.
 	SendRequestVote(address string, request *pb.RequestVoteRequest) (pb.RequestVoteResponse, error)
-
-	// RegisterAppendEntriesHandler registers the function the that will be called when an
-	// AppendEntries RPC is received.
-	RegisterAppendEntriesHandler(handler func(*pb.AppendEntriesRequest, *pb.AppendEntriesResponse) error)
-
-	// RegisterRequestVoteHandler registers the function that will be called when a
-	// RequestVote RPC is received.
-	RegisterRequestVoteHandler(handler func(*pb.RequestVoteRequest, *pb.RequestVoteResponse) error)
-
-	// Address returns the local network address.
-	Address() string
-}
-
-// connectionManager handles creating new connections and closing existing ones.
-// This implementation is concurrent safe.
-type connectionManager struct {
-	// The connections to the nodes in the cluster. Maps address to connection.
-	connections map[string]*grpc.ClientConn
-
-	// The clients used to make RPCs. Maps address to client.
-	clients map[string]pb.RaftClient
-
-	// The credentials each client will use.
-	credentials credentials.TransportCredentials
-
-	mutex sync.Mutex
-}
-
-func newConnectionManager() *connectionManager {
-	return &connectionManager{
-		connections: make(map[string]*grpc.ClientConn),
-		clients:     make(map[string]pb.RaftClient),
-		credentials: insecure.NewCredentials(),
-		mutex:       sync.Mutex{},
-	}
-}
-
-// getClient will retrieve a client for the provided address. If one does not
-// exist, it will be created.
-func (c *connectionManager) getClient(address string) (pb.RaftClient, error) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	if client, ok := c.clients[address]; ok {
-		return client, nil
-	}
-
-	conn, err := grpc.NewClient(address)
-	if err != nil {
-		return nil, fmt.Errorf("could not establish connection: %w", err)
-	}
-
-	c.connections[address] = conn
-	c.clients[address] = pb.NewRaftClient(conn)
-
-	return c.clients[address], nil
-}
-
-// closeAll closes all open connections.
-func (c *connectionManager) closeAll() {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	for address, connection := range c.connections {
-		if err := connection.Close(); err != nil {
-			log.Printf("Error when close connection %s\n", address)
-		}
-		delete(c.connections, address)
-		delete(c.clients, address)
-	}
 }
 
 // transport is an implementation of the Transport interface.
@@ -115,12 +46,6 @@ type transport struct {
 	// The RPC server for raft.
 	server *grpc.Server
 
-	// The function that is called when an AppendEntries RPC is received.
-	appendEntriesHandler func(*pb.AppendEntriesRequest, *pb.AppendEntriesResponse) error
-
-	// The function that is called when a RequestVote RPC is received.
-	requestVoteHandler func(*pb.RequestVoteRequest, *pb.RequestVoteResponse) error
-
 	// Manages connections to other members of the cluster.
 	connManager *connectionManager
 
@@ -135,10 +60,14 @@ func NewTransport(address string) (Transport, error) {
 	}
 
 	return &transport{
+		running:     false,
 		address:     resolvedAddress,
 		connManager: newConnectionManager(),
+		server:      grpc.NewServer(),
 	}, nil
 }
+
+// region Life cycle management
 
 func (t *transport) Run() error {
 	t.mutex.Lock()
@@ -153,7 +82,6 @@ func (t *transport) Run() error {
 		return err
 	}
 
-	t.server = grpc.NewServer()
 	pb.RegisterRaftServer(t.server, t)
 	go func() {
 		err := t.server.Serve(listener)
@@ -161,8 +89,8 @@ func (t *transport) Run() error {
 			log.Printf("ERROR: cannot start gRPC server with error: %e", err)
 		}
 	}()
-	t.running = true
 
+	t.running = true
 	return nil
 }
 
@@ -194,6 +122,15 @@ func (t *transport) Shutdown() error {
 	return nil
 }
 
+func (t *transport) Address() string {
+	return t.address.String()
+}
+
+// endregion
+
+// region Client interaction
+
+// SendAppendEntries handle send RPC Append Entries to client using provided address
 func (t *transport) SendAppendEntries(address string, request *pb.AppendEntriesRequest) (pb.AppendEntriesResponse, error) {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
@@ -217,6 +154,7 @@ func (t *transport) SendAppendEntries(address string, request *pb.AppendEntriesR
 	}, nil
 }
 
+// SendRequestVote handle send RPC Append Entries to client using provided address
 func (t *transport) SendRequestVote(address string, request *pb.RequestVoteRequest) (pb.RequestVoteResponse, error) {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
@@ -241,14 +179,36 @@ func (t *transport) SendRequestVote(address string, request *pb.RequestVoteReque
 	}, nil
 }
 
-func (t *transport) RegisterAppendEntriesHandler(handler func(*pb.AppendEntriesRequest, *pb.AppendEntriesResponse) error) {
-	t.appendEntriesHandler = handler
+// endregion
+
+// region Server RPC implementation
+
+// AppendEntries handles log replication requests from the leader. It takes a request to append
+// entries and fills the response with the result of the append operation. This will return an error
+// if the node is shutdown.
+func (t *transport) AppendEntries(ctx context.Context, request *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
+	var response *pb.AppendEntriesResponse
+	var err error
+	err = t.appendEntriesHandler(request, response)
+	return response, err
 }
 
-func (t *transport) RegisterRequestVoteHandler(handler func(*pb.RequestVoteRequest, *pb.RequestVoteResponse) error) {
-	t.requestVoteHandler = handler
+// RequestVotes handles vote requests from other nodes during elections. It takes a vote request
+// and fills the response with the result of the vote. This will return an error if the node is
+// shutdown.
+func (t *transport) RequestVotes(ctx context.Context, request *pb.RequestVoteRequest) (*pb.RequestVoteResponse, error) {
+	var response *pb.RequestVoteResponse
+	var err error
+	err = t.requestVoteHandler(request, response)
+	return response, err
 }
 
-func (t *transport) Address() string {
-	return t.address.String()
+func (t *transport) requestVoteHandler(request *pb.RequestVoteRequest, response *pb.RequestVoteResponse) error {
+	return fmt.Errorf("not yet implemented")
 }
+
+func (t *transport) appendEntriesHandler(request *pb.AppendEntriesRequest, response *pb.AppendEntriesResponse) error {
+	return fmt.Errorf("not yet implemented")
+}
+
+// endregion

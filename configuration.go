@@ -1,7 +1,8 @@
-package raft
+package main
 
 type RunConfig struct {
-	Bootstrap bool `default:"false" flag:"bootstrap"`
+	Bootstrap bool   `default:"false" flag:"bootstrap"`
+	RaftPort  string `default:"8080" flag:"raft-port"`
 }
 
 // Configuration represents a cluster of nodes.

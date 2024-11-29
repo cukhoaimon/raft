@@ -1,6 +1,9 @@
-package raft
+package main
 
-import "sync"
+import (
+	"main/pb"
+	"sync"
+)
 
 type FSM struct {
 	mutex sync.Mutex
@@ -12,6 +15,6 @@ type Event struct {
 	Value NodeState
 }
 
-func (f *FSM) Apply(logEntry Entry) {
+func (f *FSM) Apply(logEntry pb.Entry) {
 
 }
