@@ -4,14 +4,20 @@ import (
 	"log"
 	"main/pb"
 	"math/rand"
+	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 const (
-	heartbeatsDuration   = 100 * time.Millisecond
+	heartbeatsDuration   = 50 * time.Millisecond
 	upperElectionTimeout = 300
 	lowerElectionTimeout = 150
+	//
+	//heartbeatsDuration   = 1000 * time.Millisecond
+	//upperElectionTimeout = 3000
+	//lowerElectionTimeout = 1500
 )
 
 // Node implements the raft consensus protocol.
@@ -94,24 +100,20 @@ func (node *Node) Start() {
 	for {
 		switch node.state {
 		case Follower:
-			log.Println("I am Follower")
+			log.Println("INFO: I am Follower")
 			node.runAsFollower()
 		case Candidate:
-			log.Println("I am Candidate")
+			log.Println("INFO: I am Candidate")
 			node.runAsCandidate()
 		case Leader:
-			log.Println("I am Leader")
+			log.Println("INFO: I am Leader")
 			node.runAsLeader()
 		}
-
-		// TODO: remove this blocked
-		time.Sleep(2 * time.Second)
 	}
 }
 
 func (node *Node) runAsFollower() {
-	time.Sleep(5 * time.Second)
-	for !node.heartbeatTimeout {
+	for !node.heartbeatTimeout && node.state == Follower {
 		log.Println("INFO: receive heart beats from leader.")
 		node.mutex.Lock()
 		node.heartbeatTimeout = true
@@ -132,7 +134,70 @@ func (node *Node) runAsFollower() {
 }
 
 func (node *Node) runAsCandidate() {
+	if node.state != Candidate {
+		return
+	}
 	// start selection
+	var peers []string
+	var err error
+
+	if peers, err = node.storage.GetPeers(); err != nil {
+		log.Printf("ERROR: Node %s fail to send heatbeets due to error %s, shutting down \n",
+			node.id,
+			err,
+		)
+		return
+	}
+
+	node.currentTerm += 1
+	var wg sync.WaitGroup
+	var successCount atomic.Uint64
+
+	for _, peer := range peers {
+		if peer == node.address {
+			continue
+		}
+
+		wg.Add(1)
+		go func() {
+			log.Printf("INFO: sending request vote RPC to %s with term=%d", peer, node.currentTerm)
+			response, err := node.transport.SendRequestVote(peer, &pb.RequestVoteRequest{
+				Term:        node.currentTerm,
+				CandidateId: node.id,
+			})
+
+			if err != nil {
+				log.Printf("WARNING: fail to sending request vote RPC to node %s due to error %s\n", peer, err)
+				log.Printf("INFO: removing peer=%s from peers\n", peer)
+
+				peers = slices.DeleteFunc(peers, func(e string) bool { return e == peer })
+				if err = node.storage.SetPeers(peers); err != nil {
+					log.Printf("WARNING: cannot update peers")
+				}
+			}
+
+			if response.VoteGranted {
+				successCount.Add(1)
+				log.Printf("INFO: receive vote from %s, current votes=%d", peer, successCount.Load())
+			}
+
+			if node.currentTerm <= response.Term {
+				log.Printf("INFO: invalid terms, back to follower. currentTerm=%d, responseTerm=%d", node.currentTerm, response.Term)
+				node.state = Follower
+				node.currentTerm = response.Term
+			}
+
+			wg.Done()
+		}()
+
+		if successCount.Load() >= uint64(len(peers)/2+1) {
+			log.Printf("INFO: get majority votes, become leader")
+			node.state = Leader
+		}
+	}
+
+	// wait for all request sent
+	wg.Wait()
 
 	// candidate: send request votes
 	// • On conversion to candidate, start election:
@@ -164,14 +229,22 @@ func (node *Node) runAsLeader() {
 				continue
 			}
 
-			log.Printf("INFO: sending heart beats to %s", peer)
-			_, err = node.transport.SendAppendEntries(peer, &pb.AppendEntriesRequest{
-				Term:     node.currentTerm,
-				LeaderId: node.id,
-			})
-			if err != nil {
-				log.Printf("WARNING: fail to send heartbeats to node %s due to error %s\n", peer, err)
-			}
+			go func() {
+				log.Printf("INFO: sending heart beats to %s", peer)
+				_, err = node.transport.SendAppendEntries(peer, &pb.AppendEntriesRequest{
+					Term:     node.currentTerm,
+					LeaderId: node.id,
+				})
+				if err != nil {
+					log.Printf("WARNING: fail to send heartbeats to node %s due to error %s\n", peer, err)
+					log.Printf("INFO: removing peer=%s from peers\n", peer)
+
+					peers = slices.DeleteFunc(peers, func(e string) bool { return e == peer })
+					if err = node.storage.SetPeers(peers); err != nil {
+						log.Printf("WARNING: cannot update peers")
+					}
+				}
+			}()
 
 			time.Sleep(heartbeatsDuration)
 		}
@@ -197,7 +270,8 @@ func (node *Node) AppendEntries(request *pb.AppendEntriesRequest, response *pb.A
 
 	// heat beats request
 	if len(request.Entries) == 0 {
-		// reset timeout
+		node.state = Follower
+		node.currentTerm = request.Term
 		node.heartbeatTimeout = false
 
 		response = &pb.AppendEntriesResponse{
@@ -212,5 +286,16 @@ func (node *Node) AppendEntries(request *pb.AppendEntriesRequest, response *pb.A
 }
 
 func (node *Node) RequestVote(request *pb.RequestVoteRequest, response *pb.RequestVoteResponse) error {
+	node.mutex.Lock()
+	defer node.mutex.Unlock()
+
+	if request.Term <= node.currentTerm {
+		response.VoteGranted = false
+		return nil
+	}
+
+	node.currentTerm = request.Term
+	response.Term = request.Term
+	response.VoteGranted = true
 	return nil
 }

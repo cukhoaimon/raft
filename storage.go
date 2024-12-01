@@ -50,7 +50,7 @@ func (s *storage) SetPeers(peerAddresses []string) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	file, err := os.OpenFile(peersJson, os.O_RDWR|os.O_CREATE, 0644)
+	file, err := os.OpenFile(peersJson, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 	defer file.Close()
 
 	if err != nil && !os.IsNotExist(err) {

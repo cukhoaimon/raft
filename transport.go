@@ -207,20 +207,20 @@ func (t *transport) SendRequestVote(address string, request *pb.RequestVoteReque
 // entries and fills the response with the result of the append operation. This will return an error
 // if the node is shutdown.
 func (t *transport) AppendEntries(ctx context.Context, request *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
-	var response *pb.AppendEntriesResponse
+	response := pb.AppendEntriesResponse{}
 	var err error
-	err = t.appendEntriesHandler(request, response)
-	return response, err
+	err = t.appendEntriesHandler(request, &response)
+	return &response, err
 }
 
 // RequestVotes handles vote requests from other nodes during elections. It takes a vote request
 // and fills the response with the result of the vote. This will return an error if the node is
 // shutdown.
 func (t *transport) RequestVotes(ctx context.Context, request *pb.RequestVoteRequest) (*pb.RequestVoteResponse, error) {
-	var response *pb.RequestVoteResponse
+	var response pb.RequestVoteResponse
 	var err error
-	err = t.requestVoteHandler(request, response)
-	return response, err
+	err = t.requestVoteHandler(request, &response)
+	return &response, err
 }
 
 // endregion
